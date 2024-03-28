@@ -1,2 +1,2 @@
 # entrapper-case
-This is the repository for the case of entrapped
+This is the repository for the entrapeer case
