@@ -20,9 +20,9 @@ Then in another terminal run:
 ```
 curl -X POST http://127.0.0.1:8000/start-operation/
 ```
-If you want to track progress run:
+If you want to track progress go to:
 ```
-curl http://127.0.0.1:8000/list-operations/ 
+http://127.0.0.1:8000/list-operations/ 
 ```
 After the task is completed, you can view the results in the file:
 ```
