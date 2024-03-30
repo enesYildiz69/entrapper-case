@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks
 from uuid import uuid4
 import asyncio
-from fastapi import HTTPException
 
 app = FastAPI()
 
@@ -139,43 +138,27 @@ def classify_companies_by_continent(file_path):
     # Save the classified data into a single JSON file
     with open('companies_by_continent.json', 'w') as file:
         json.dump(continents_data, file, indent=4)
-        
+
 operations_status = {}
 
 async def async_wrapper_of_your_script():
-    await asyncio.sleep(1)  # Simulate an async operation
-    # Call your script's functions here
-    fetch_data()
-    fetch_data_for_enterprises()
-    combine_company_data()
-    classify_companies_by_continent('all_companies_data.json')
+    loop = asyncio.get_event_loop()
+    # Execute blocking operations in a thread pool
+    await loop.run_in_executor(None, fetch_data)
+    await loop.run_in_executor(None, fetch_data_for_enterprises)
+    await loop.run_in_executor(None, combine_company_data)
+    await loop.run_in_executor(None, classify_companies_by_continent, 'all_companies_data.json')
+
 
 @app.post("/start-operation/")
 async def start_operation(background_tasks: BackgroundTasks):
     operation_id = str(uuid4())
-    operations_status[operation_id] = "In Progress"
+    operations_status[operation_id] = "In Progress, come back later"
     
-    # Adding the operation to background tasks
+    # Offload the operation to be executed in the background
     background_tasks.add_task(execute_operation, operation_id)
     
     return {"message": "Operation started. Check progress with the operation ID.", "operation_id": operation_id}
-
-@app.get("/operation-status/{operation_id}")
-async def operation_status(operation_id: str):
-    # Check if the operation_id exists in the operations_status dictionary
-    if operation_id not in operations_status:
-        raise HTTPException(status_code=404, detail="Operation not found")
-    
-    status = operations_status[operation_id]
-    # Check if the operation is still in progress
-    if status == "In Progress":
-        return {"operation_id": operation_id, "status": "In Progress", "message": "Come back later"}
-    # If the operation is completed or failed, return the status
-    elif status in ["Completed", "Failed"]:
-        return {"operation_id": operation_id, "status": status}
-    else:
-        # Handle any other unexpected status
-        return {"operation_id": operation_id, "status": "Unknown", "message": "Unknown operation status"}
 
 async def execute_operation(operation_id: str):
     try:
