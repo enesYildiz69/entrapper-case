@@ -26,5 +26,5 @@ curl http://127.0.0.1:8000/list-operations/
 ```
 After the task is completed, you can view the results in the file:
 ```
-all_companies_data.json
+companies_by_continent.json
 ```
