@@ -2,7 +2,6 @@ import requests
 import json
 import os
 from tasks import save_startup_data
-from langchain_community.document_loaders import JSONLoader
 from openai import OpenAI
 from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks
@@ -18,14 +17,7 @@ client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 url = 'https://ranking.glassdollar.com/graphql'
 
 headers = {
-    'Accept': '*/*',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Connection': 'keep-alive',
     'Content-Type': 'application/json',
-    'Origin': 'https://ranking.glassdollar.com',
-    'Referer': 'https://ranking.glassdollar.com/',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
 }
 
 payload_base = {
@@ -37,6 +29,7 @@ payload_enterprise = {"variables":{"id":{}},"query":"query ($id: String!) {\n  c
 
 def fetch_data():
     print("Fetching data from the GraphQL endpoint...")
+    
     if not os.path.exists('data.json'):
         # Making the POST request to the GraphQL endpoint
         response = requests.post(url, json=payload_base, headers=headers)
@@ -94,12 +87,14 @@ def get_continent(country_name):
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Which continent is {country_name} in? Just answer the question with one word. Choose between Africa, Antarctica, Asia, Europe, North America, Australia, and South America."}
+            {"role": "user", "content": f"Which continent is {country_name} in? Just answer the question with one word. Choose from this list [Africa, Antarctica, Asia, Europe, North_America, Australia, South_America]. Do not put any punctuation."}
         ],
         max_tokens=60,
         temperature=0.7
     )
     answer = response.choices[0].message.content
+    if answer.endswith('.'):
+        answer = answer[:-1]
     return answer.strip()
 
 def get_continent_description(continent_name):
@@ -139,6 +134,13 @@ def classify_companies_by_continent(file_path):
     with open('companies_by_continent.json', 'w') as file:
         json.dump(continents_data, file, indent=4)
 
+def clean_up():
+    os.remove('data.json')
+    os.remove('all_companies_data.json')
+    for filename in os.listdir('companies'):
+        if filename.endswith('.json'):
+            os.remove(os.path.join('companies', filename))
+
 operations_status = {}
 
 async def async_wrapper_of_your_script():
@@ -148,6 +150,7 @@ async def async_wrapper_of_your_script():
     await loop.run_in_executor(None, fetch_data_for_enterprises)
     await loop.run_in_executor(None, combine_company_data)
     await loop.run_in_executor(None, classify_companies_by_continent, 'all_companies_data.json')
+    await loop.run_in_executor(None, clean_up)
 
 
 @app.post("/start-operation/")
