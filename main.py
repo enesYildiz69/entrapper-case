@@ -87,7 +87,7 @@ def get_continent(country_name):
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": f"Which continent is {country_name} in? Just answer the question with one word. Choose from this list [Africa, Antarctica, Asia, Europe, North_America, Australia, South_America]. Do not put any punctuation."}
+            {"role": "user", "content": f"Which continent is {country_name} in? Just answer the question with one word. Choose from this list [Africa, Antarctica, Asia, Europe, North_America, Australia, South_America, Unknown]. Do not put any punctuation."}
         ],
         max_tokens=60,
         temperature=0.7
@@ -140,6 +140,7 @@ def clean_up():
     for filename in os.listdir('companies'):
         if filename.endswith('.json'):
             os.remove(os.path.join('companies', filename))
+    os.rmdir('companies')
 
 operations_status = {}
 
