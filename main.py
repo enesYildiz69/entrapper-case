@@ -5,6 +5,12 @@ from tasks import save_startup_data
 from langchain_community.document_loaders import JSONLoader
 from openai import OpenAI
 from dotenv import load_dotenv
+from fastapi import FastAPI, BackgroundTasks
+from uuid import uuid4
+import asyncio
+from fastapi import HTTPException
+
+app = FastAPI()
 
 load_dotenv() 
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -30,64 +36,59 @@ payload_base = {
 }
 payload_enterprise = {"variables":{"id":{}},"query":"query ($id: String!) {\n  corporate(id: $id) {\n    id\n    name\n    description\n    logo_url\n    hq_city\n    hq_country\n    website_url\n    linkedin_url\n    twitter_url\n    startup_partners_count\n    startup_partners {\n      master_startup_id\n      company_name\n      logo_url: logo\n      city\n      website\n      country\n      theme_gd\n      __typename\n    }\n    startup_themes\n    startup_friendly_badge\n    __typename\n  }\n}\n"}
 
-print("Fetching data from the GraphQL endpoint...")
+def fetch_data():
+    print("Fetching data from the GraphQL endpoint...")
+    if not os.path.exists('data.json'):
+        # Making the POST request to the GraphQL endpoint
+        response = requests.post(url, json=payload_base, headers=headers)
 
-if not os.path.exists('data.json'):
-    # Making the POST request to the GraphQL endpoint
-    response = requests.post(url, json=payload_base, headers=headers)
-
-    if response.status_code == 200:
-        data = response.json()
-        file_path = 'data.json'
-        with open(file_path, 'w', encoding='utf-8') as file:
-            json.dump(data, file, ensure_ascii=False, indent=4)
-        print(f"Content saved to {file_path}")
+        if response.status_code == 200:
+            data = response.json()
+            file_path = 'data.json'
+            with open(file_path, 'w', encoding='utf-8') as file:
+                json.dump(data, file, ensure_ascii=False, indent=4)
+            print(f"Content saved to {file_path}")
+        else:
+            print(f"Failed to fetch data, status code: {response.status_code}")
     else:
-        print(f"Failed to fetch data, status code: {response.status_code}")
-else:
-    print("Data already exists, skipping the data retrieval process.")
+        print("Data already exists, skipping the data retrieval process.")
 
+def fetch_data_for_enterprises():
+    
+    print("Fetching data for each enterprise...")
+    with open('data.json') as file:
+        data = json.load(file)
+    ids = [corp["id"] for corp in data["data"]["topRankedCorporates"]]
+    for id in ids:
+        payload_enterprise["variables"]["id"] = id
+        response = requests.post(url, json=payload_enterprise, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            startup_partners = data['data']['corporate']['startup_partners']
+            for startup_partner in startup_partners:
+                save_startup_data.delay(startup_partner)
+        else:
+            print(f"Failed to fetch data, status code: {response.status_code}")
 
-with open('data.json') as file:
-    data = json.load(file)
-ids = [corp["id"] for corp in data["data"]["topRankedCorporates"]]
+    print("All data has been fetched and saved.")
 
-print("Fetching data for each enterprise...")
-
-for id in ids:
-    payload_enterprise["variables"]["id"] = id
-    response = requests.post(url, json=payload_enterprise, headers=headers)
-    if response.status_code == 200:
-        data = response.json()
-        startup_partners = data['data']['corporate']['startup_partners']
-        for startup_partner in startup_partners:
-            save_startup_data.delay(startup_partner)
-    else:
-        print(f"Failed to fetch data, status code: {response.status_code}")
-
-print("All data has been fetched and saved.")
-print("Compiling all companies data into a single file...")
-directory_path = 'companies'
-all_companies_data = []
-for filename in os.listdir(directory_path):
-    if filename.endswith('.json'):
-        # Construct the full file path
-        file_path = os.path.join(directory_path, filename)
-        
-        # Open and read the JSON file
-        with open(file_path, 'r') as file:
-            data = json.load(file)
-            all_companies_data.append(data)
-
-# Write the compiled list to a new JSON file
-with open('all_companies_data.json', 'w') as outfile:
-   json.dump(all_companies_data, outfile, indent=4)
-
-print("All data has been compiled into a single file.")
-
-print("Beginnging embedding process")
-
-
+def combine_company_data():
+    print("Compiling all companies data into a single file...")
+    directory_path = 'companies'
+    all_companies_data = []
+    for filename in os.listdir(directory_path):
+        if filename.endswith('.json'):
+            # Construct the full file path
+            file_path = os.path.join(directory_path, filename)
+            
+            # Open and read the JSON file
+            with open(file_path, 'r') as file:
+                data = json.load(file)
+                all_companies_data.append(data)
+    # Write the compiled list to a new JSON file
+    with open('all_companies_data.json', 'w') as outfile:
+        json.dump(all_companies_data, outfile, indent=4)
+    print("All data has been compiled into a single file.")
 
 def get_continent(country_name):
     response = client.chat.completions.create(
@@ -116,6 +117,7 @@ def get_continent_description(continent_name):
     return description
 
 def classify_companies_by_continent(file_path):
+    print("Beginnging llm process")
     with open(file_path, 'r') as file:
         companies = json.load(file)
     
@@ -137,5 +139,54 @@ def classify_companies_by_continent(file_path):
     # Save the classified data into a single JSON file
     with open('companies_by_continent.json', 'w') as file:
         json.dump(continents_data, file, indent=4)
+        
+operations_status = {}
 
-classify_companies_by_continent('all_companies_data.json')
+async def async_wrapper_of_your_script():
+    await asyncio.sleep(1)  # Simulate an async operation
+    # Call your script's functions here
+    fetch_data()
+    fetch_data_for_enterprises()
+    combine_company_data()
+    classify_companies_by_continent('all_companies_data.json')
+
+@app.post("/start-operation/")
+async def start_operation(background_tasks: BackgroundTasks):
+    operation_id = str(uuid4())
+    operations_status[operation_id] = "In Progress"
+    
+    # Adding the operation to background tasks
+    background_tasks.add_task(execute_operation, operation_id)
+    
+    return {"message": "Operation started. Check progress with the operation ID.", "operation_id": operation_id}
+
+@app.get("/operation-status/{operation_id}")
+async def operation_status(operation_id: str):
+    # Check if the operation_id exists in the operations_status dictionary
+    if operation_id not in operations_status:
+        raise HTTPException(status_code=404, detail="Operation not found")
+    
+    status = operations_status[operation_id]
+    # Check if the operation is still in progress
+    if status == "In Progress":
+        return {"operation_id": operation_id, "status": "In Progress", "message": "Come back later"}
+    # If the operation is completed or failed, return the status
+    elif status in ["Completed", "Failed"]:
+        return {"operation_id": operation_id, "status": status}
+    else:
+        # Handle any other unexpected status
+        return {"operation_id": operation_id, "status": "Unknown", "message": "Unknown operation status"}
+
+async def execute_operation(operation_id: str):
+    try:
+        # Your script's logic here, adapted to async if possible
+        # For demonstration, let's assume this function wraps your script's functionalities
+        await async_wrapper_of_your_script()
+        operations_status[operation_id] = "Completed"
+    except Exception as e:
+        operations_status[operation_id] = f"Failed: {str(e)}"
+
+@app.get("/list-operations/")
+async def list_operations():
+    print(operations_status)
+    return operations_status
